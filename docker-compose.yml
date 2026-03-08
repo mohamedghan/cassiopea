@@ -1,0 +1,46 @@
+services:
+  hand-control:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: robotic-hand-control
+
+    # Explicit device mapping (more secure than privileged mode)
+    devices:
+      - /dev/ttyACM0:/dev/ttyACM0   # Arduino serial port
+      - /dev/video0:/dev/video0     # Webcam device
+
+    # Volume mounts
+    volumes:
+      - /run/udev:/run/udev:ro  # udev for device hotplug
+
+    # Environment variables
+    environment:
+      - SERIAL_PORT=${SERIAL_PORT:-/dev/ttyACM0}
+      - BAUD_RATE=${BAUD_RATE:-115200}
+      - CAMERA_INDEX=${CAMERA_INDEX:-0}
+      - FLASK_HOST=0.0.0.0
+      - FLASK_PORT=5000
+      - MAX_SERVO_ANGLE=${MAX_SERVO_ANGLE:-128}
+
+    # Port mapping
+    ports:
+      - "5000:5000"
+
+    # Group memberships for device access
+    group_add:
+      - dialout  # For serial port access
+      - video    # For webcam access
+
+    # Restart policy
+    restart: unless-stopped
+
+    # Resource limits (optional)
+    deploy:
+      resources:
+        limits:
+          cpus: "2.0"
+          memory: 2G
+        reservations:
+          cpus: "1.0"
+          memory: 1G

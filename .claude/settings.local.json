@@ -1,0 +1,14 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(git -C /home/meddabeast/proj log --oneline)",
+      "Bash(source venv/bin/activate)",
+      "Bash(pip install:*)",
+      "Bash(ruff check:*)",
+      "Bash(PYTHONPATH=src pytest:*)",
+      "Bash(tree:*)",
+      "Bash(docker-compose build:*)",
+      "Bash(docker-compose up:*)"
+    ]
+  }
+}
