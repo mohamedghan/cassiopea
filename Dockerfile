@@ -15,12 +15,17 @@ RUN pip install --no-cache-dir --prefix=/install .
 
 # ============ Production stage ============
 FROM python:3.12-slim
-
 # Install runtime dependencies for OpenCV and MediaPipe
 RUN apt-get update && apt-get install -y --no-install-recommends \
     libgl1 \
     libglib2.0-0 \
     libsm6 \
+libgles2 \
+    libgl1 \
+    libegl1 \
+    libglib2.0-0 \
+    libgl1 \
+    libglib2.0-0 \
     libxext6 \
     libxrender1 \
     libgomp1 \
@@ -43,6 +48,8 @@ ENV PYTHONPATH=/app/src
 ENV PYTHONUNBUFFERED=1
 ENV FLASK_HOST=0.0.0.0
 ENV FLASK_PORT=5000
+ENV MEDIAPIPE_DISABLE_GPU=1
+
 
 # Expose Flask port
 EXPOSE 5000

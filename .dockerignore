@@ -46,3 +46,4 @@ Thumbs.db
 !src/
 !hand_landmarker.task
 !pyproject.toml
+env/
