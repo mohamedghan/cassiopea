@@ -1,13 +1,10 @@
 """Hand tracking module for maintaining consistent hand tracking."""
 
-import time
 from collections.abc import Sequence
 
 import numpy as np
 
-from hand_control.config import config
-from hand_control.filters import OneEuroFilter
-from hand_control.types import FINGER_NAMES, FingerAngles, FingerName, LandmarkPoint, Vector2D
+from hand_control.types import FingerAngles, LandmarkPoint, Vector2D
 
 
 class HandTracker:
@@ -32,15 +29,6 @@ class HandTracker:
         self._tracking_threshold = tracking_threshold
         self._max_frames_without_hand = max_frames_without_hand
         self._frames_without_hand = 0
-
-        # Create filters for each finger
-        self._filters: dict[FingerName, OneEuroFilter] = {
-            finger: OneEuroFilter(
-                min_cutoff=config.filter_min_cutoff,
-                beta=config.filter_beta,
-            )
-            for finger in FINGER_NAMES
-        }
 
     @property
     def tracked_hand_center(self) -> Vector2D | None:
@@ -110,26 +98,6 @@ class HandTracker:
 
         return None
 
-    def filter_angles(self, angles: FingerAngles) -> FingerAngles:
-        """Apply One Euro Filter to all finger angles.
-
-        Args:
-            angles: Raw finger angles from detection.
-
-        Returns:
-            Filtered finger angles with reduced jitter.
-        """
-        t = time.time()
-        return FingerAngles(
-            thumb=int(self._filters["thumb"].update(angles["thumb"], t)),
-            index=int(self._filters["index"].update(angles["index"], t)),
-            middle=int(self._filters["middle"].update(angles["middle"], t)),
-            ring=int(self._filters["ring"].update(angles["ring"], t)),
-            pinky=int(self._filters["pinky"].update(angles["pinky"], t)),
-        )
-
     def reset_tracking(self) -> None:
         """Reset tracking state."""
         self._tracked_hand_center = None
-        for f in self._filters.values():
-            f.reset()

@@ -182,8 +182,7 @@ class CameraStream:
                         )
                         logger.debug("Landmarks: %s", lm_str)
 
-                    raw_angles = get_all_finger_angles(enriched_landmarks)
-                    current_angles = hand_tracker.filter_angles(raw_angles)
+                    current_angles = get_all_finger_angles(enriched_landmarks)
                     self._finger_angles = current_angles
 
                     # Send to Arduino

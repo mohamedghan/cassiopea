@@ -46,10 +46,6 @@ class Config:
     hand_tracking_confidence: float = 0.5
     max_num_hands: int = 2
 
-    # Filter configuration
-    filter_min_cutoff: float = 0.5
-    filter_beta: float = 0.01
-
     @classmethod
     def from_env(cls) -> "Config":
         """Create configuration from environment variables."""
@@ -81,10 +77,6 @@ class Config:
                 os.getenv("HAND_TRACKING_CONFIDENCE", str(cls.hand_tracking_confidence))
             ),
             max_num_hands=int(os.getenv("MAX_NUM_HANDS", str(cls.max_num_hands))),
-            filter_min_cutoff=float(
-                os.getenv("FILTER_MIN_CUTOFF", str(cls.filter_min_cutoff))
-            ),
-            filter_beta=float(os.getenv("FILTER_BETA", str(cls.filter_beta))),
         )
 
 
