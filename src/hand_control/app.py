@@ -28,8 +28,8 @@ def create_app(app_config: Config | None = None) -> Flask:
     arduino = ArduinoController(port=cfg.serial_port, baud_rate=cfg.baud_rate)
     app.config["arduino"] = arduino
 
-    # Initialize camera stream with Arduino
-    camera_stream = CameraStream(camera_index=cfg.camera_index, arduino=arduino)
+    # Initialize camera stream with Arduino (uses RealSense D435i for RGB + depth)
+    camera_stream = CameraStream(arduino=arduino)
     app.config["camera_stream"] = camera_stream
 
     # Register blueprint

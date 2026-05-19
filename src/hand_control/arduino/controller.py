@@ -1,12 +1,15 @@
 """Arduino controller for servo communication."""
 
 import contextlib
+import logging
 import time
 from collections.abc import Sequence
 
 import serial
 
 from hand_control.config import config
+
+logger = logging.getLogger(__name__)
 
 
 class ArduinoController:
@@ -72,9 +75,11 @@ class ArduinoController:
 
         try:
             cmd = f"A:{angles[0]},{angles[1]},{angles[2]},{angles[3]},{angles[4]}\n"
+            logger.debug("Serial TX: %s", cmd.strip())
             self._serial.write(cmd.encode())
             return True
         except Exception:
+            logger.error("Failed to send all-angles command", exc_info=True)
             return False
 
     def send_finger_angle(self, finger_idx: int, angle: int) -> bool:
@@ -92,7 +97,9 @@ class ArduinoController:
 
         try:
             cmd = f"F:{finger_idx},{angle}\n"
+            logger.debug("Serial TX: %s", cmd.strip())
             self._serial.write(cmd.encode())
             return True
         except Exception:
+            logger.error("Failed to send finger-angle command", exc_info=True)
             return False

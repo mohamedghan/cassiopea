@@ -1,6 +1,7 @@
 """Camera capture and video streaming module."""
 
-from collections.abc import Generator
+import logging
+from collections.abc import Generator, Sequence
 
 import cv2
 import mediapipe as mp
@@ -8,28 +9,72 @@ from mediapipe.tasks import python
 from mediapipe.tasks.python import vision
 
 from hand_control.arduino import ArduinoController
+from hand_control.camera.realsense import RealSenseCamera
 from hand_control.config import config
 from hand_control.tracking import HandTracker, draw_landmarks_on_image, get_all_finger_angles
-from hand_control.types import FingerAngles, ImageArray
+from hand_control.types import FingerAngles, ImageArray, MutableLandmark, LandmarkPoint
+
+logger = logging.getLogger(__name__)
+
+
+def _inject_real_depth(
+    landmarks: Sequence[LandmarkPoint],
+    realsense: RealSenseCamera,
+    depth_frame: object,
+    frame_width: int,
+    frame_height: int,
+) -> list[MutableLandmark]:
+    """Replace MediaPipe estimated z with real depth from the RealSense sensor.
+
+    MediaPipe processes the horizontally flipped color frame, so its landmark
+    x coordinates are in flipped space.  The RealSense depth frame is aligned
+    to the original (unflipped) color frame, so the x coordinate must be
+    mirrored back before the depth lookup: ``depth_x = (1 - lm.x) * width``.
+
+    Args:
+        landmarks: 21 MediaPipe hand landmarks (normalized, flipped space).
+        realsense: RealSenseCamera instance used for depth queries.
+        depth_frame: Aligned RealSense depth frame.
+        frame_width: Width of the color frame in pixels.
+        frame_height: Height of the color frame in pixels.
+
+    Returns:
+        List of MutableLandmark with z set to real depth in meters.
+        Landmarks where the sensor returns 0 (invalid/out-of-range) keep
+        MediaPipe's estimated z value.
+    """
+    enriched: list[MutableLandmark] = []
+    for lm in landmarks:
+        # Un-flip x to map back into the original (unflipped) depth frame space
+        depth_px_x = int((1.0 - lm.x) * frame_width)
+        depth_px_y = int(lm.y * frame_height)
+
+        real_depth = realsense.get_depth_at(depth_frame, depth_px_x, depth_px_y)
+
+        # Use real depth when valid; fall back to MediaPipe estimate otherwise
+        z = real_depth if real_depth > 0.0 else lm.z
+        enriched.append(MutableLandmark(x=lm.x, y=lm.y, z=z))
+    return enriched
 
 
 class CameraStream:
-    """Manages camera capture and hand tracking video stream."""
+    """Manages RealSense camera capture and hand tracking video stream."""
 
     def __init__(
         self,
-        camera_index: int | None = None,
         arduino: ArduinoController | None = None,
     ) -> None:
         """Initialize the camera stream.
 
         Args:
-            camera_index: Camera device index. Defaults to config value.
             arduino: Optional Arduino controller for sending angles.
         """
-        self._camera_index = camera_index if camera_index is not None else config.camera_index
         self._arduino = arduino
-        self._camera: cv2.VideoCapture | None = None
+        self._realsense = RealSenseCamera(
+            width=config.realsense_width,
+            height=config.realsense_height,
+            fps=config.realsense_fps,
+        )
         self._finger_angles: FingerAngles = FingerAngles(
             thumb=config.max_servo_angle,
             index=config.max_servo_angle,
@@ -44,30 +89,33 @@ class CameraStream:
         return self._finger_angles
 
     def open(self) -> bool:
-        """Open the camera.
+        """Open the RealSense camera.
 
         Returns:
             True if camera opened successfully, False otherwise.
         """
-        self._camera = cv2.VideoCapture(self._camera_index)
-        return self._camera.isOpened()
+        return self._realsense.open()
 
     def close(self) -> None:
-        """Close the camera."""
-        if self._camera is not None:
-            self._camera.release()
-            self._camera = None
+        """Close the RealSense camera."""
+        self._realsense.close()
 
     def generate_frames(self) -> Generator[bytes, None, None]:
-        """Generate JPEG frames with hand tracking overlay.
+        """Generate JPEG frames with hand tracking and real depth overlay.
+
+        The RealSense D435i provides synchronized color (BGR) and depth
+        (Z16) streams.  Depth is aligned to the color frame so every color
+        pixel has a corresponding metric depth value.
+
+        For each detected hand landmark the MediaPipe estimated z coordinate
+        is replaced with the real depth in meters queried from the depth frame.
+        The wrist landmark depth is also rendered on-screen as the hand
+        distance from the camera.
 
         Yields:
             JPEG-encoded frames with MJPEG boundary markers.
         """
-        if self._camera is None:
-            self.open()
-
-        if self._camera is None or not self._camera.isOpened():
+        if not self._realsense.open():
             return
 
         # Initialize MediaPipe hand landmarker
@@ -81,14 +129,17 @@ class CameraStream:
         detector = vision.HandLandmarker.create_from_options(options)
         hand_tracker = HandTracker()
 
+        frame_w = self._realsense.width
+        frame_h = self._realsense.height
+
         try:
             while True:
-                success, frame = self._camera.read()
-                if not success:
-                    break
+                color_bgr, depth_frame = self._realsense.get_frames()
+                if color_bgr is None or depth_frame is None:
+                    continue
 
-                # Flip horizontally for mirror effect
-                frame = cv2.flip(frame, 1)
+                # Flip horizontally for mirror effect (depth frame stays unflipped)
+                frame: ImageArray = cv2.flip(color_bgr, 1)
                 rgb_frame: ImageArray = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
                 mp_image = mp.Image(image_format=mp.ImageFormat.SRGB, data=rgb_frame)
 
@@ -105,10 +156,33 @@ class CameraStream:
                 )
 
                 # Find and track hand
-                tracked_hand = hand_tracker.find_tracked_hand(detection_result.hand_landmarks)
+                tracked_hand = hand_tracker.find_tracked_hand(
+                    detection_result.hand_landmarks
+                )
+
+                hand_distance_m: float = 0.0
 
                 if tracked_hand is not None:
-                    raw_angles = get_all_finger_angles(tracked_hand)
+                    # Replace estimated z with real metric depth from RealSense
+                    enriched_landmarks = _inject_real_depth(
+                        tracked_hand,
+                        self._realsense,
+                        depth_frame,
+                        frame_w,
+                        frame_h,
+                    )
+
+                    # Wrist landmark (index 0) gives hand distance from camera
+                    hand_distance_m = enriched_landmarks[0].z
+
+                    if logger.isEnabledFor(logging.DEBUG):
+                        lm_str = "  ".join(
+                            f"[{i:02d}] x={lm.x:.3f} y={lm.y:.3f} z={lm.z:.3f}"
+                            for i, lm in enumerate(enriched_landmarks)
+                        )
+                        logger.debug("Landmarks: %s", lm_str)
+
+                    raw_angles = get_all_finger_angles(enriched_landmarks)
                     current_angles = hand_tracker.filter_angles(raw_angles)
                     self._finger_angles = current_angles
 
@@ -131,7 +205,7 @@ class CameraStream:
                     hand_tracker.tracked_hand_center,
                 )
 
-                # Show number of hands detected
+                # Overlay: number of hands detected
                 num_hands = (
                     len(detection_result.hand_landmarks)
                     if detection_result.hand_landmarks
@@ -147,11 +221,22 @@ class CameraStream:
                     2,
                 )
 
-                # Convert back to BGR for encoding
-                frame = cv2.cvtColor(rgb_frame, cv2.COLOR_RGB2BGR)
+                # Overlay: real hand distance from RealSense depth sensor
+                if hand_distance_m > 0.0:
+                    cv2.putText(
+                        rgb_frame,
+                        f"Distance: {hand_distance_m:.3f} m",
+                        (10, 250),
+                        cv2.FONT_HERSHEY_SIMPLEX,
+                        0.6,
+                        (0, 255, 128),
+                        2,
+                    )
 
-                # Encode as JPEG
-                ret, buffer = cv2.imencode(".jpg", frame)
+                # Convert back to BGR for JPEG encoding
+                bgr_out: ImageArray = cv2.cvtColor(rgb_frame, cv2.COLOR_RGB2BGR)
+
+                ret, buffer = cv2.imencode(".jpg", bgr_out)
                 if not ret:
                     continue
 
@@ -163,3 +248,4 @@ class CameraStream:
 
         finally:
             detector.close()
+            self._realsense.close()

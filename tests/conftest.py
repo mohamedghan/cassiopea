@@ -86,3 +86,36 @@ def mock_hand_landmarks():
     landmarks.append(MockLandmark(0.6, 0.35, 0.0))
 
     return landmarks
+
+
+@pytest.fixture
+def mock_straight_thumb_landmarks():
+    """Full 21-landmark hand with a fully extended (straight) thumb.
+
+    Landmarks 0-4 are collinear so every joint angle is 180°.
+    The remaining landmarks are neutral zeros.
+    """
+    landmarks = [MockLandmark(0.0, 0.0, 0.0)] * 21
+    # Straight line: wrist → CMC → MCP → IP → TIP
+    landmarks[0] = MockLandmark(0.5, 0.8, 0.0)   # WRIST
+    landmarks[1] = MockLandmark(0.4, 0.7, 0.0)   # THUMB_CMC
+    landmarks[2] = MockLandmark(0.3, 0.6, 0.0)   # THUMB_MCP  (collinear)
+    landmarks[3] = MockLandmark(0.2, 0.5, 0.0)   # THUMB_IP   (collinear)
+    landmarks[4] = MockLandmark(0.1, 0.4, 0.0)   # THUMB_TIP  (collinear)
+    return landmarks
+
+
+@pytest.fixture
+def mock_curled_thumb_landmarks():
+    """Full 21-landmark hand with a strongly curled thumb.
+
+    The CMC angle (wrist→CMC→MCP) is ≈45°, MCP angle ≈135°, IP angle ≈90°,
+    giving a weighted average well below the straight-thumb value.
+    """
+    landmarks = [MockLandmark(0.0, 0.0, 0.0)] * 21
+    landmarks[0] = MockLandmark(0.5, 0.8, 0.0)    # WRIST
+    landmarks[1] = MockLandmark(0.4, 0.7, 0.0)    # THUMB_CMC
+    landmarks[2] = MockLandmark(0.5, 0.7, 0.0)    # THUMB_MCP  (bent back, CMC ≈ 45°)
+    landmarks[3] = MockLandmark(0.55, 0.65, 0.0)  # THUMB_IP   (MCP ≈ 135°)
+    landmarks[4] = MockLandmark(0.5, 0.6, 0.0)    # THUMB_TIP  (IP ≈ 90°)
+    return landmarks

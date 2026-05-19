@@ -20,6 +20,7 @@ packaging==26.0
 pillow==12.1.0
 pycparser==3.0
 pyparsing==3.3.2
+pyrealsense2
 pyserial==3.5
 python-dateutil==2.9.0.post0
 six==1.17.0

@@ -15,22 +15,18 @@ RUN pip install --no-cache-dir --prefix=/install .
 
 # ============ Production stage ============
 FROM python:3.12-slim
-# Install runtime dependencies for OpenCV and MediaPipe
+# Install runtime dependencies for OpenCV, MediaPipe, and RealSense
 RUN apt-get update && apt-get install -y --no-install-recommends \
     libgl1 \
     libglib2.0-0 \
     libsm6 \
-libgles2 \
-    libgl1 \
+    libgles2 \
     libegl1 \
-    libglib2.0-0 \
-    libgl1 \
-    libglib2.0-0 \
     libxext6 \
     libxrender1 \
     libgomp1 \
     libv4l-0 \
-    v4l-utils \
+    libusb-1.0-0 \
     curl \
     && rm -rf /var/lib/apt/lists/*
 

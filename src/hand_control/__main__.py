@@ -1,5 +1,7 @@
 """Entry point for running the hand control application."""
 
+import logging
+
 from hand_control.app import create_app
 from hand_control.config import config
 from hand_control.models import download_model
@@ -7,6 +9,12 @@ from hand_control.models import download_model
 
 def main() -> None:
     """Run the hand control application."""
+    logging.basicConfig(
+        level=logging.DEBUG,
+        format="%(asctime)s %(levelname)-8s %(name)s - %(message)s",
+        datefmt="%H:%M:%S",
+    )
+
     # Download model if needed
     download_model()
 

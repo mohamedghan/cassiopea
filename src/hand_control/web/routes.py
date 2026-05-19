@@ -13,6 +13,15 @@ def create_blueprint() -> Blueprint:
     """
     bp = Blueprint("hand_control", __name__, template_folder="templates")
 
+    # Per-finger (thumb=0 … pinky=4) servo range: (min, max)
+    _finger_ranges = [
+        (config.thumb_min_angle, config.thumb_max_angle),
+        (config.index_min_angle, config.index_max_angle),
+        (config.middle_min_angle, config.middle_max_angle),
+        (config.ring_min_angle, config.ring_max_angle),
+        (config.pinky_min_angle, config.pinky_max_angle),
+    ]
+
     @bp.route("/")
     def index() -> str:
         """Render the main control interface."""
@@ -40,7 +49,11 @@ def create_blueprint() -> Blueprint:
         Returns:
             JSON response with success status.
         """
-        angle = max(0, min(config.max_servo_angle, angle))
+        if 0 <= finger < len(_finger_ranges):
+            lo, hi = _finger_ranges[finger]
+        else:
+            lo, hi = 0, config.max_servo_angle
+        angle = max(lo, min(hi, angle))
         arduino = current_app.config.get("arduino")
         if arduino is not None:
             arduino.send_finger_angle(finger, angle)
@@ -58,7 +71,8 @@ def create_blueprint() -> Blueprint:
         """
         try:
             angle_list = [
-                min(config.max_servo_angle, max(0, int(a))) for a in angles.split(",")
+                max(lo, min(hi, int(a)))
+                for (lo, hi), a in zip(_finger_ranges, angles.split(","))
             ]
             if len(angle_list) == 5:
                 arduino = current_app.config.get("arduino")
@@ -83,11 +97,11 @@ def create_blueprint() -> Blueprint:
             camera_stream.finger_angles
             if camera_stream is not None
             else {
-                "thumb": config.max_servo_angle,
-                "index": config.max_servo_angle,
-                "middle": config.max_servo_angle,
-                "ring": config.max_servo_angle,
-                "pinky": config.max_servo_angle,
+                "thumb": config.thumb_max_angle,
+                "index": config.index_max_angle,
+                "middle": config.middle_max_angle,
+                "ring": config.ring_max_angle,
+                "pinky": config.pinky_max_angle,
             }
         )
 

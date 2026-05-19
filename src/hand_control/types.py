@@ -1,5 +1,6 @@
 """Type definitions for the hand control system."""
 
+from dataclasses import dataclass
 from typing import Literal, Protocol, TypedDict
 
 import numpy as np
@@ -40,6 +41,20 @@ class LandmarkPoint(Protocol):
     def z(self) -> float:
         """Z coordinate (depth)."""
         ...
+
+
+@dataclass
+class MutableLandmark:
+    """Mutable landmark point satisfying LandmarkPoint protocol.
+
+    Used to inject real depth values from the RealSense camera into
+    MediaPipe landmarks, replacing the estimated z coordinate with
+    actual metric depth in meters.
+    """
+
+    x: float
+    y: float
+    z: float
 
 
 # NumPy array type aliases

@@ -8,20 +8,22 @@ services:
     # Explicit device mapping (more secure than privileged mode)
     devices:
       - /dev/ttyACM0:/dev/ttyACM0   # Arduino serial port
-      - /dev/video0:/dev/video0     # Webcam device
+      - /dev/bus/usb:/dev/bus/usb   # RealSense D435i (pyrealsense2 uses libusb, not V4L2)
 
     # Volume mounts
     volumes:
-      - /run/udev:/run/udev:ro  # udev for device hotplug
+      - /run/udev:/run/udev:ro  # udev for device hotplug (required for USB enumeration)
 
     # Environment variables
     environment:
       - SERIAL_PORT=${SERIAL_PORT:-/dev/ttyACM0}
       - BAUD_RATE=${BAUD_RATE:-115200}
-      - CAMERA_INDEX=${CAMERA_INDEX:-0}
       - FLASK_HOST=0.0.0.0
       - FLASK_PORT=5000
-      - MAX_SERVO_ANGLE=${MAX_SERVO_ANGLE:-128}
+      - MAX_SERVO_ANGLE=${MAX_SERVO_ANGLE:-120}
+      - REALSENSE_WIDTH=${REALSENSE_WIDTH:-640}
+      - REALSENSE_HEIGHT=${REALSENSE_HEIGHT:-480}
+      - REALSENSE_FPS=${REALSENSE_FPS:-30}
 
     # Port mapping
     ports:
@@ -29,8 +31,8 @@ services:
 
     # Group memberships for device access
     group_add:
-      - dialout  # For serial port access
-      - video    # For webcam access
+      - dialout  # For serial port access (Arduino)
+      - plugdev  # For USB device access via udev rules (RealSense)
 
     # Restart policy
     restart: unless-stopped
