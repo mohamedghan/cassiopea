@@ -5,7 +5,7 @@ from collections.abc import Sequence
 import cv2
 
 from hand_control.config import config
-from hand_control.types import FingerAngles, ImageArray, LandmarkPoint, Vector2D
+from hand_control.types import FingerAngles, FingerRatios, ImageArray, LandmarkPoint, Vector2D
 
 # Colors for each finger (BGR format for OpenCV)
 FINGER_COLORS: list[tuple[int, int, int]] = [
@@ -38,6 +38,7 @@ def draw_landmarks_on_image(
     hand_landmarks: Sequence[LandmarkPoint] | None,
     angles: FingerAngles,
     tracked_center: Vector2D | None = None,
+    ratios: FingerRatios | None = None,
 ) -> ImageArray:
     """Draw hand landmarks and angle info on the image.
 
@@ -118,10 +119,15 @@ def draw_landmarks_on_image(
             color,
             2,
         )
-        # Draw label
+        # Draw label with ratio
+        if ratios is not None and key in ratios:
+            ratio_val = ratios[key]
+            label = f"{name}: {angle} R:{ratio_val:.2f}"
+        else:
+            label = f"{name}: {angle}"
         cv2.putText(
             annotated_image,
-            f"{name}: {angle}",
+            label,
             (120, y_offset),
             cv2.FONT_HERSHEY_SIMPLEX,
             0.6,

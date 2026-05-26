@@ -11,8 +11,14 @@ from mediapipe.tasks.python import vision
 from hand_control.arduino import ArduinoController
 from hand_control.camera.realsense import RealSenseCamera
 from hand_control.config import config
-from hand_control.tracking import HandTracker, draw_landmarks_on_image, get_all_finger_angles
-from hand_control.types import FingerAngles, ImageArray, MutableLandmark, LandmarkPoint
+from hand_control.tracking import (
+    HandTracker,
+    draw_landmarks_on_image,
+    get_all_finger_angles,
+    get_all_finger_angles_distance,
+    get_all_finger_ratios,
+)
+from hand_control.types import FingerAngles, FingerRatios, ImageArray, MutableLandmark, LandmarkPoint
 
 logger = logging.getLogger(__name__)
 
@@ -82,11 +88,51 @@ class CameraStream:
             ring=config.max_servo_angle,
             pinky=config.max_servo_angle,
         )
+        self._finger_ratios: FingerRatios = {"thumb": 0.0, "index": 0.0, "middle": 0.0, "ring": 0.0, "pinky": 0.0}
+        self._strategy: str = "distance"  # "distance" or "joint_angle"
+        self._distance_ratio_min: float = config.distance_ratio_min
+        self._distance_ratio_max: float = config.distance_ratio_max
 
     @property
     def finger_angles(self) -> FingerAngles:
         """Current finger angles from hand tracking."""
         return self._finger_angles
+
+    @property
+    def finger_ratios(self) -> FingerRatios:
+        """Current finger distance ratios."""
+        return self._finger_ratios
+
+    @property
+    def strategy(self) -> str:
+        """Current angle calculation strategy."""
+        return self._strategy
+
+    @strategy.setter
+    def strategy(self, value: str) -> None:
+        """Set angle calculation strategy."""
+        if value in ("distance", "joint_angle"):
+            self._strategy = value
+
+    @property
+    def distance_ratio_min(self) -> float:
+        """Minimum distance ratio for distance strategy."""
+        return self._distance_ratio_min
+
+    @distance_ratio_min.setter
+    def distance_ratio_min(self, value: float) -> None:
+        """Set minimum distance ratio."""
+        self._distance_ratio_min = value
+
+    @property
+    def distance_ratio_max(self) -> float:
+        """Maximum distance ratio for distance strategy."""
+        return self._distance_ratio_max
+
+    @distance_ratio_max.setter
+    def distance_ratio_max(self, value: float) -> None:
+        """Set maximum distance ratio."""
+        self._distance_ratio_max = value
 
     def open(self) -> bool:
         """Open the RealSense camera.
@@ -182,8 +228,18 @@ class CameraStream:
                         )
                         logger.debug("Landmarks: %s", lm_str)
 
-                    current_angles = get_all_finger_angles(enriched_landmarks)
+                    if self._strategy == "distance":
+                        current_angles = get_all_finger_angles_distance(
+                            enriched_landmarks,
+                            ratio_min=self._distance_ratio_min,
+                            ratio_max=self._distance_ratio_max,
+                        )
+                        current_ratios = get_all_finger_ratios(enriched_landmarks)
+                    else:
+                        current_angles = get_all_finger_angles(enriched_landmarks)
+                        current_ratios = {"thumb": 0.0, "index": 0.0, "middle": 0.0, "ring": 0.0, "pinky": 0.0}
                     self._finger_angles = current_angles
+                    self._finger_ratios = current_ratios
 
                     # Send to Arduino
                     if self._arduino is not None:
@@ -202,6 +258,7 @@ class CameraStream:
                     tracked_hand,
                     current_angles,
                     hand_tracker.tracked_hand_center,
+                    current_ratios,
                 )
 
                 # Overlay: number of hands detected

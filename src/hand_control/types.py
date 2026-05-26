@@ -24,6 +24,16 @@ class FingerAngles(TypedDict):
     pinky: ServoAngle
 
 
+class FingerRatios(TypedDict):
+    """Dictionary mapping finger names to distance ratios."""
+
+    thumb: float
+    index: float
+    middle: float
+    ring: float
+    pinky: float
+
+
 class LandmarkPoint(Protocol):
     """Protocol for MediaPipe landmark points."""
 

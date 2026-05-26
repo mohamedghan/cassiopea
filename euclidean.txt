@@ -1,0 +1,42 @@
+The most computationally efficient way to map MediaPipe’s 3D hand landmarks to 5 servo motors is using **Normalized Euclidean Distances** instead of calculating joint angles with inverse kinematics.
+
+Calculating angles requires heavy trigonometric functions (like `acos` or `atan2`), whereas distance calculations only require basic arithmetic. By measuring how far each fingertip is from the wrist and normalizing it against the palm size (to account for the hand moving closer to or further from the camera), you get a reliable, linear ratio that translates perfectly to servo degrees.
+
+Here is the step-by-step algorithm to achieve this efficiently.
+
+## 1. Identify the Target Landmarks
+
+MediaPipe returns an array of 21 landmarks. You only need 7 of them:
+
+* **Wrist (Reference):** `0`
+* **Middle MCP (Palm Scale):** `9`
+* **Fingertips:** Thumb `4`, Index `8`, Middle `12`, Ring `16`, Pinky `20`
+
+## 2. Calculate the Palm Scale
+
+Because the 3D coordinates fluctuate based on the hand's distance from the camera, you must establish a dynamic "base unit" for the hand's size. The distance between the Wrist `0` and the base of the middle finger `9` is highly stable regardless of finger movement.
+
+$$ D_{palm} = \sqrt{(x_9 - x_0)^2 + (y_9 - y_0)^2 + (z_9 - z_0)^2} $$
+
+## 3. Calculate Fingertip Distances
+
+For each of the 5 fingertips, calculate its distance to the wrist. When a finger is extended, this distance is maximized. When curled into a fist, the distance approaches zero.
+
+For each fingertip $i \in \{4, 8, 12, 16, 20\}$:
+
+$$ D_i = \sqrt{(x_i - x_0)^2 + (y_i - y_0)^2 + (z_i - z_0)^2} $$
+
+## 4. Normalize and Map to Servo Angles
+
+Divide the fingertip distance by the palm scale to get a dimensionless ratio.
+
+$$ R_i = \frac{D_i}{D_{palm}} $$
+
+Through calibration, you will find that $R_i$ typically ranges from roughly **0.5 (fully closed fist)** to **2.0 (fully open hand)**. You then use a standard linear interpolation to convert this ratio into a $0^\circ$ to $180^\circ$ servo angle.
+
+
+### Why this is the best approach:
+
+1. **$O(1)$ Complexity:** It executes in constant time with negligible overhead.
+2. **Depth Invariant:** Because you divide the finger distance by the palm distance, the hand can move closer to or further from the camera without the servo angles glitching.
+3. **Ignores Joint Gimbal Lock:** Calculating true 3D Euler angles for finger joints often results in axis flipping or gimbal lock when the hand rotates. Distance calculations are perfectly immune to hand rotation.

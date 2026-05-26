@@ -83,6 +83,38 @@
             margin-bottom: 15px;
             font-size: 12px;
         }
+        .strategy-section {
+            background: #2d2d44;
+            padding: 15px;
+            border-radius: 5px;
+            margin-bottom: 15px;
+        }
+        .strategy-section h4 {
+            margin: 0 0 10px 0;
+            color: #4CAF50;
+        }
+        .strategy-toggle {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 10px;
+        }
+        .strategy-toggle label {
+            display: flex;
+            align-items: center;
+            gap: 5px;
+            cursor: pointer;
+        }
+        .ratio-controls {
+            margin-top: 10px;
+        }
+        .ratio-controls label {
+            display: block;
+            margin-bottom: 5px;
+            font-size: 12px;
+        }
+        .ratio-controls input[type="range"] {
+            width: 100%;
+        }
     </style>
 </head>
 <body>
@@ -97,6 +129,28 @@
             <div class="info">
                 Servo range: 0 (closed) - {{ max_angle }} (open)<br>
                 Tracks one hand even with multiple hands visible
+            </div>
+
+            <div class="strategy-section">
+                <h4>Angle Strategy</h4>
+                <div class="strategy-toggle">
+                    <label>
+                        <input type="radio" name="strategy" value="distance" checked onchange="setStrategy('distance')">
+                        Distance (faster)
+                    </label>
+                    <label>
+                        <input type="radio" name="strategy" value="joint_angle" onchange="setStrategy('joint_angle')">
+                        Joint Angle
+                    </label>
+                </div>
+                <div class="ratio-controls" id="ratio-controls">
+                    <label>Ratio Min (closed): <span id="ratio-min-val">0.5</span></label>
+                    <input type="range" id="ratio-min" min="0.1" max="1.5" step="0.05" value="0.5"
+                           oninput="updateRatio()">
+                    <label>Ratio Max (open): <span id="ratio-max-val">2.0</span></label>
+                    <input type="range" id="ratio-max" min="1.0" max="3.0" step="0.05" value="2.0"
+                           oninput="updateRatio()">
+                </div>
             </div>
 
             <h3>Manual Finger Control</h3>
@@ -142,6 +196,7 @@
 
             <div class="status-bar">
                 <div>Arduino: <span id="arduino-status">Checking...</span></div>
+                <div>Strategy: <span id="strategy-status">distance</span></div>
                 <div>Detected: T:<span id="d-thumb">-</span> I:<span id="d-index">-</span> M:<span id="d-middle">-</span> R:<span id="d-ring">-</span> P:<span id="d-pinky">-</span></div>
             </div>
         </div>
@@ -197,6 +252,38 @@
             }
         }
 
+        async function setStrategy(name) {
+            await fetch(`/strategy/${name}`);
+            document.getElementById('ratio-controls').style.display =
+                name === 'distance' ? 'block' : 'none';
+        }
+
+        async function updateRatio() {
+            const min = document.getElementById('ratio-min').value;
+            const max = document.getElementById('ratio-max').value;
+            document.getElementById('ratio-min-val').innerText = min;
+            document.getElementById('ratio-max-val').innerText = max;
+            await fetch(`/ratio/${min}/${max}`);
+        }
+
+        async function loadStrategy() {
+            try {
+                const res = await fetch('/strategy');
+                const data = await res.json();
+                document.querySelector(`input[name="strategy"][value="${data.strategy}"]`).checked = true;
+                document.getElementById('ratio-min').value = data.ratio_min;
+                document.getElementById('ratio-max').value = data.ratio_max;
+                document.getElementById('ratio-min-val').innerText = data.ratio_min;
+                document.getElementById('ratio-max-val').innerText = data.ratio_max;
+                document.getElementById('strategy-status').innerText = data.strategy;
+                document.getElementById('ratio-controls').style.display =
+                    data.strategy === 'distance' ? 'block' : 'none';
+            } catch (e) {
+                console.error(e);
+            }
+        }
+
+        loadStrategy();
         setInterval(updateStatus, 200);
     </script>
 </body>

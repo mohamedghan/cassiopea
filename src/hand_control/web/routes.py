@@ -112,4 +112,63 @@ def create_blueprint() -> Blueprint:
             }
         )
 
+    @bp.route("/strategy")
+    def get_strategy() -> Response:
+        """Get current angle calculation strategy and ratio settings.
+
+        Returns:
+            JSON response with strategy name and distance ratio bounds.
+        """
+        camera_stream = current_app.config.get("camera_stream")
+        if camera_stream is None:
+            return jsonify({
+                "strategy": "distance",
+                "ratio_min": config.distance_ratio_min,
+                "ratio_max": config.distance_ratio_max,
+            })
+        return jsonify({
+            "strategy": camera_stream.strategy,
+            "ratio_min": camera_stream.distance_ratio_min,
+            "ratio_max": camera_stream.distance_ratio_max,
+        })
+
+    @bp.route("/strategy/<name>")
+    def set_strategy(name: str) -> Response:
+        """Set angle calculation strategy.
+
+        Args:
+            name: Strategy name ("distance" or "joint_angle").
+
+        Returns:
+            JSON response with success status.
+        """
+        if name not in ("distance", "joint_angle"):
+            return jsonify({"success": False, "error": "Invalid strategy"})
+
+        camera_stream = current_app.config.get("camera_stream")
+        if camera_stream is not None:
+            camera_stream.strategy = name
+        return jsonify({"success": True, "strategy": name})
+
+    @bp.route("/ratio/<float:ratio_min>/<float:ratio_max>")
+    def set_ratio(ratio_min: float, ratio_max: float) -> Response:
+        """Set distance ratio bounds for distance-based strategy.
+
+        Args:
+            ratio_min: Minimum ratio (closed fist), typically ~0.5.
+            ratio_max: Maximum ratio (open hand), typically ~2.0.
+
+        Returns:
+            JSON response with success status.
+        """
+        camera_stream = current_app.config.get("camera_stream")
+        if camera_stream is not None:
+            camera_stream.distance_ratio_min = ratio_min
+            camera_stream.distance_ratio_max = ratio_max
+        return jsonify({
+            "success": True,
+            "ratio_min": ratio_min,
+            "ratio_max": ratio_max,
+        })
+
     return bp

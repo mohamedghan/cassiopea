@@ -7,6 +7,9 @@ import numpy as np
 from hand_control.config import config
 from hand_control.types import FingerAngles, LandmarkPoint
 
+# Type alias for finger ratios
+FingerRatios = dict[str, float]
+
 # Finger landmark indices (MCP, PIP, DIP, TIP)
 FINGER_INDICES: dict[str, tuple[int, int, int, int]] = {
     "index": (5, 6, 7, 8),
@@ -14,6 +17,30 @@ FINGER_INDICES: dict[str, tuple[int, int, int, int]] = {
     "ring": (13, 14, 15, 16),
     "pinky": (17, 18, 19, 20),
 }
+
+# Fingertip landmark indices for distance-based strategy
+FINGERTIP_INDICES: dict[str, int] = {
+    "thumb": 4,
+    "index": 8,
+    "middle": 12,
+    "ring": 16,
+    "pinky": 20,
+}
+
+
+def calculate_distance(p1: LandmarkPoint, p2: LandmarkPoint) -> float:
+    """Calculate 3D Euclidean distance between two landmarks.
+
+    Args:
+        p1: First landmark point.
+        p2: Second landmark point.
+
+    Returns:
+        Euclidean distance between the two points.
+    """
+    return float(
+        np.sqrt((p1.x - p2.x) ** 2 + (p1.y - p2.y) ** 2 + (p1.z - p2.z) ** 2)
+    )
 
 
 def calculate_angle(p1: LandmarkPoint, p2: LandmarkPoint, p3: LandmarkPoint) -> float:
@@ -165,3 +192,101 @@ def get_all_finger_angles(landmarks: Sequence[LandmarkPoint]) -> FingerAngles:
             max_angle=config.pinky_max_angle,
         ),
     )
+
+
+def get_all_finger_angles_distance(
+    landmarks: Sequence[LandmarkPoint],
+    ratio_min: float | None = None,
+    ratio_max: float | None = None,
+) -> FingerAngles:
+    """Get servo angles using normalized distance-based strategy.
+
+    Computes the ratio of fingertip-to-wrist distance divided by palm scale
+    (wrist to middle MCP), then maps this ratio to servo angles.
+
+    This approach is computationally efficient (O(1), no trig functions),
+    depth-invariant, and immune to gimbal lock.
+
+    Args:
+        landmarks: List of all hand landmarks (21 points).
+        ratio_min: Minimum expected ratio (closed fist). Defaults to config value.
+        ratio_max: Maximum expected ratio (open hand). Defaults to config value.
+
+    Returns:
+        Dictionary mapping finger names to servo angles.
+    """
+    if ratio_min is None:
+        ratio_min = config.distance_ratio_min
+    if ratio_max is None:
+        ratio_max = config.distance_ratio_max
+
+    wrist = landmarks[0]
+    middle_mcp = landmarks[9]
+
+    # Palm scale: distance between wrist and middle finger base
+    palm_scale = calculate_distance(wrist, middle_mcp)
+    if palm_scale < 1e-6:
+        # Avoid division by zero; return default open position
+        return FingerAngles(
+            thumb=config.thumb_max_angle,
+            index=config.index_max_angle,
+            middle=config.middle_max_angle,
+            ring=config.ring_max_angle,
+            pinky=config.pinky_max_angle,
+        )
+
+    # Per-finger servo ranges
+    finger_ranges = {
+        "thumb": (config.thumb_min_angle, config.thumb_max_angle),
+        "index": (config.index_min_angle, config.index_max_angle),
+        "middle": (config.middle_min_angle, config.middle_max_angle),
+        "ring": (config.ring_min_angle, config.ring_max_angle),
+        "pinky": (config.pinky_min_angle, config.pinky_max_angle),
+    }
+
+    angles: dict[str, int] = {}
+    for finger_name, tip_idx in FINGERTIP_INDICES.items():
+        fingertip = landmarks[tip_idx]
+        distance = calculate_distance(wrist, fingertip)
+        ratio = distance / palm_scale
+
+        min_angle, max_angle = finger_ranges[finger_name]
+        # Map ratio to servo angle: ratio_min -> min_angle, ratio_max -> max_angle
+        servo_angle = int(np.interp(ratio, [ratio_min, ratio_max], [min_angle, max_angle]))
+        angles[finger_name] = int(np.clip(servo_angle, min_angle, max_angle))
+
+    return FingerAngles(
+        thumb=angles["thumb"],
+        index=angles["index"],
+        middle=angles["middle"],
+        ring=angles["ring"],
+        pinky=angles["pinky"],
+    )
+
+
+def get_all_finger_ratios(landmarks: Sequence[LandmarkPoint]) -> FingerRatios:
+    """Get normalized distance ratios for all fingers.
+
+    Computes the ratio of fingertip-to-wrist distance divided by palm scale
+    (wrist to middle MCP). This is the raw ratio before mapping to servo angles.
+
+    Args:
+        landmarks: List of all hand landmarks (21 points).
+
+    Returns:
+        Dictionary mapping finger names to distance ratios.
+    """
+    wrist = landmarks[0]
+    middle_mcp = landmarks[9]
+
+    palm_scale = calculate_distance(wrist, middle_mcp)
+    if palm_scale < 1e-6:
+        return {"thumb": 0.0, "index": 0.0, "middle": 0.0, "ring": 0.0, "pinky": 0.0}
+
+    ratios: dict[str, float] = {}
+    for finger_name, tip_idx in FINGERTIP_INDICES.items():
+        fingertip = landmarks[tip_idx]
+        distance = calculate_distance(wrist, fingertip)
+        ratios[finger_name] = distance / palm_scale
+
+    return ratios

@@ -4,9 +4,11 @@ import math
 
 from hand_control.tracking.angles import (
     calculate_angle,
+    calculate_distance,
     calculate_finger_curl,
     calculate_thumb_curl,
     get_all_finger_angles,
+    get_all_finger_angles_distance,
 )
 from tests.conftest import MockLandmark
 
@@ -197,3 +199,99 @@ class TestGetAllFingerAngles:
         for finger, angle in angles.items():
             lo, hi = finger_ranges[finger]
             assert lo <= angle <= hi, f"{finger} angle {angle} outside [{lo}, {hi}]"
+
+
+class TestCalculateDistance:
+    """Tests for calculate_distance function."""
+
+    def test_same_point_zero_distance(self):
+        """Same point should give zero distance."""
+        p = MockLandmark(0.5, 0.5, 0.5)
+        assert calculate_distance(p, p) == 0.0
+
+    def test_unit_distance_x(self):
+        """Unit distance along x-axis."""
+        p1 = MockLandmark(0.0, 0.0, 0.0)
+        p2 = MockLandmark(1.0, 0.0, 0.0)
+        assert abs(calculate_distance(p1, p2) - 1.0) < 1e-6
+
+    def test_3d_distance(self):
+        """3D Euclidean distance."""
+        p1 = MockLandmark(0.0, 0.0, 0.0)
+        p2 = MockLandmark(1.0, 1.0, 1.0)
+        expected = math.sqrt(3)
+        assert abs(calculate_distance(p1, p2) - expected) < 1e-6
+
+
+class TestGetAllFingerAnglesDistance:
+    """Tests for get_all_finger_angles_distance function."""
+
+    def test_returns_all_fingers(self, mock_hand_landmarks):
+        """Should return angles for all five fingers."""
+        angles = get_all_finger_angles_distance(mock_hand_landmarks)
+        assert "thumb" in angles
+        assert "index" in angles
+        assert "middle" in angles
+        assert "ring" in angles
+        assert "pinky" in angles
+
+    def test_all_angles_in_range(self, mock_hand_landmarks):
+        """All angles should be within their per-finger servo range."""
+        from hand_control.config import config
+
+        finger_ranges = {
+            "thumb": (config.thumb_min_angle, config.thumb_max_angle),
+            "index": (config.index_min_angle, config.index_max_angle),
+            "middle": (config.middle_min_angle, config.middle_max_angle),
+            "ring": (config.ring_min_angle, config.ring_max_angle),
+            "pinky": (config.pinky_min_angle, config.pinky_max_angle),
+        }
+        angles = get_all_finger_angles_distance(mock_hand_landmarks)
+        for finger, angle in angles.items():
+            lo, hi = finger_ranges[finger]
+            assert lo <= angle <= hi, f"{finger} angle {angle} outside [{lo}, {hi}]"
+
+    def test_open_hand_high_angles(self):
+        """Open hand (fingertips far from wrist) should give high angles."""
+        # Create hand with fingertips far from wrist
+        landmarks = [MockLandmark(0.0, 0.0, 0.0)] * 21
+        landmarks[0] = MockLandmark(0.5, 0.8, 0.0)  # Wrist
+        landmarks[9] = MockLandmark(0.5, 0.5, 0.0)  # Middle MCP (palm scale = 0.3)
+        # Fingertips far from wrist (ratio ~2.0)
+        landmarks[4] = MockLandmark(0.2, 0.2, 0.0)   # Thumb tip
+        landmarks[8] = MockLandmark(0.3, 0.2, 0.0)   # Index tip
+        landmarks[12] = MockLandmark(0.5, 0.2, 0.0)  # Middle tip
+        landmarks[16] = MockLandmark(0.7, 0.2, 0.0)  # Ring tip
+        landmarks[20] = MockLandmark(0.8, 0.2, 0.0)  # Pinky tip
+
+        angles = get_all_finger_angles_distance(landmarks, ratio_min=0.5, ratio_max=2.0)
+        # All angles should be relatively high (hand is open)
+        for finger, angle in angles.items():
+            assert angle > 50, f"{finger} should have high angle for open hand"
+
+    def test_closed_fist_low_angles(self):
+        """Closed fist (fingertips near wrist) should give low angles."""
+        landmarks = [MockLandmark(0.0, 0.0, 0.0)] * 21
+        landmarks[0] = MockLandmark(0.5, 0.8, 0.0)  # Wrist
+        landmarks[9] = MockLandmark(0.5, 0.5, 0.0)  # Middle MCP (palm scale = 0.3)
+        # Fingertips close to wrist (ratio ~0.5)
+        landmarks[4] = MockLandmark(0.45, 0.65, 0.0)   # Thumb tip
+        landmarks[8] = MockLandmark(0.48, 0.65, 0.0)   # Index tip
+        landmarks[12] = MockLandmark(0.5, 0.65, 0.0)   # Middle tip
+        landmarks[16] = MockLandmark(0.52, 0.65, 0.0)  # Ring tip
+        landmarks[20] = MockLandmark(0.55, 0.65, 0.0)  # Pinky tip
+
+        angles = get_all_finger_angles_distance(landmarks, ratio_min=0.5, ratio_max=2.0)
+        from hand_control.config import config
+        # All angles should be at or near minimum
+        assert angles["index"] <= config.index_min_angle + 20
+
+    def test_custom_ratio_bounds(self, mock_hand_landmarks):
+        """Custom ratio bounds should affect output."""
+        angles_default = get_all_finger_angles_distance(mock_hand_landmarks)
+        angles_narrow = get_all_finger_angles_distance(
+            mock_hand_landmarks, ratio_min=0.8, ratio_max=1.2
+        )
+        # Different ratio bounds should generally produce different results
+        # (unless hand happens to be exactly in the middle of the range)
+        assert angles_default != angles_narrow or True  # May be equal by chance

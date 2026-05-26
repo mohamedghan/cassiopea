@@ -33,6 +33,10 @@ class Config:
     pinky_min_angle: int = 20
     pinky_max_angle: int = 120
 
+    # Distance strategy calibration
+    distance_ratio_min: float = 0.5  # Normalized ratio when fist is closed
+    distance_ratio_max: float = 2.0  # Normalized ratio when hand is open
+
     # Model configuration
     model_path: Path = Path("hand_landmarker.task")
 
@@ -66,6 +70,12 @@ class Config:
             ring_max_angle=int(os.getenv("RING_MAX_ANGLE", str(cls.ring_max_angle))),
             pinky_min_angle=int(os.getenv("PINKY_MIN_ANGLE", str(cls.pinky_min_angle))),
             pinky_max_angle=int(os.getenv("PINKY_MAX_ANGLE", str(cls.pinky_max_angle))),
+            distance_ratio_min=float(
+                os.getenv("DISTANCE_RATIO_MIN", str(cls.distance_ratio_min))
+            ),
+            distance_ratio_max=float(
+                os.getenv("DISTANCE_RATIO_MAX", str(cls.distance_ratio_max))
+            ),
             model_path=Path(os.getenv("MODEL_PATH", str(cls.model_path))),
             flask_host=os.getenv("FLASK_HOST", cls.flask_host),
             flask_port=int(os.getenv("FLASK_PORT", str(cls.flask_port))),
