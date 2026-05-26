@@ -285,6 +285,6 @@ def get_all_finger_ratios(landmarks: Sequence[LandmarkPoint]) -> FingerRatios:
     for finger_name, tip_idx in FINGERTIP_INDICES.items():
         fingertip = landmarks[tip_idx]
         distance = calculate_distance(wrist, fingertip)
-        ratios[finger_name] = distance / palm_scale
+        ratios[finger_name] = float(np.clip(distance / palm_scale, 0.0, 10.0))
 
     return ratios

@@ -14,11 +14,8 @@ from scipy.interpolate import griddata
 from hand_control.arduino import ArduinoController
 from hand_control.camera.realsense import RealSenseCamera
 from hand_control.config import config
-from hand_control.filters import DepthEMA, bilateral_filter_depth_roi
-from hand_control.filters.depth_preprocessing import (
-    _extract_hand_roi_depth,
-    _get_filtered_depth_at,
-)
+from hand_control.filters import DepthEMA
+from hand_control.filters.depth_preprocessing import _extract_hand_roi_depth
 from hand_control.tracking import (
     HandTracker,
     draw_landmarks_on_image,
@@ -48,13 +45,7 @@ def _inject_real_depth(
     frame_width: int,
     frame_height: int,
 ) -> list[MutableLandmark]:
-    """Replace MediaPipe estimated z with real depth from RealSense, spatially filtered.
-
-    Steps:
-      1. Extract the hand ROI from the depth frame.
-      2. Apply bilateral filtering to smooth depth while preserving edges.
-      3. Look up filtered depth for each of the 21 landmarks.
-      4. Fall back to MediaPipe z where sensor returns 0 (invalid/occluded).
+    """Replace MediaPipe estimated z with real depth from RealSense.
 
     MediaPipe processes the horizontally flipped color frame, so its landmark
     x coordinates are in flipped space.  The RealSense depth frame is aligned
@@ -64,7 +55,7 @@ def _inject_real_depth(
     Args:
         landmarks: 21 MediaPipe hand landmarks (normalized, flipped space).
         realsense: RealSenseCamera instance used for depth queries.
-        depth_frame: Aligned RealSense depth frame.
+        depth_frame: Aligned RealSense depth frame (spatially filtered).
         frame_width: Width of the color frame in pixels.
         frame_height: Height of the color frame in pixels.
 
@@ -73,21 +64,12 @@ def _inject_real_depth(
         Landmarks where the sensor returns 0 (invalid/out-of-range) keep
         MediaPipe's estimated z value.
     """
-    depth_roi, px_min, py_min, _, _ = _extract_hand_roi_depth(
+    depths, _, _, _, _ = _extract_hand_roi_depth(
         landmarks, depth_frame, realsense, frame_width, frame_height
-    )
-    filtered_depth = bilateral_filter_depth_roi(
-        depth_roi,
-        d=config.bilateral_d,
-        sigma_color=config.bilateral_sigma_color,
-        sigma_space=config.bilateral_sigma_space,
-    )
-    filtered_depths = _get_filtered_depth_at(
-        filtered_depth, landmarks, frame_width, frame_height, px_min, py_min
     )
 
     enriched: list[MutableLandmark] = []
-    for lm, z in zip(landmarks, filtered_depths, strict=True):
+    for lm, z in zip(landmarks, depths, strict=True):
         z = z if z > 0.0 else lm.z
         enriched.append(MutableLandmark(x=lm.x, y=lm.y, z=z))
     return enriched
@@ -159,10 +141,6 @@ def _build_realsense_depth_map(
 ) -> ImageArray | None:
     """Build a Jet heatmap of the RealSense depth sensor values over the hand ROI.
 
-    For each pixel in the hand bounding box (in flipped space), the
-    corresponding unflipped x coordinate is computed and the metric depth
-    is queried from the aligned RealSense depth frame.
-
     Args:
         landmarks: 21 hand landmarks (normalized 0-1, flipped space).
         realsense: RealSenseCamera instance for depth queries.
@@ -176,15 +154,29 @@ def _build_realsense_depth_map(
     if landmarks is None or len(landmarks) < 3:
         return None
 
-    depth_roi, _, _, _, _ = _extract_hand_roi_depth(
-        landmarks, depth_frame, realsense, frame_w, frame_h
-    )
-    depth_roi = bilateral_filter_depth_roi(
-        depth_roi,
-        d=config.bilateral_d,
-        sigma_color=config.bilateral_sigma_color,
-        sigma_space=config.bilateral_sigma_space,
-    )
+    pts_norm = np.array([(lm.x, lm.y) for lm in landmarks], dtype=np.float64)
+
+    margin = 0.08
+    x_min = max(0.0, pts_norm[:, 0].min() - margin)
+    x_max = min(1.0, pts_norm[:, 0].max() + margin)
+    y_min = max(0.0, pts_norm[:, 1].min() - margin)
+    y_max = min(1.0, pts_norm[:, 1].max() + margin)
+
+    px_min = int(x_min * frame_w)
+    px_max = int(x_max * frame_w)
+    py_min = int(y_min * frame_h)
+    py_max = int(y_max * frame_h)
+
+    roi_w = max(1, px_max - px_min)
+    roi_h = max(1, py_max - py_min)
+
+    depth_roi = np.zeros((roi_h, roi_w), dtype=np.float32)
+    for row in range(py_min, py_max):
+        for col in range(px_min, px_max):
+            depth_px_x = int((1.0 - col / frame_w) * frame_w)
+            depth_px_y = row
+            d = realsense.get_depth_at(depth_frame, depth_px_x, depth_px_y)
+            depth_roi[row - py_min, col - px_min] = d if d > 0 else np.nan
 
     valid_mask = ~np.isnan(depth_roi)
     if not np.any(valid_mask):
@@ -223,6 +215,10 @@ class CameraStream:
             width=config.realsense_width,
             height=config.realsense_height,
             fps=config.realsense_fps,
+            spatial_filter_enabled=config.spatial_filter_enabled,
+            spatial_filter_magnitude=config.spatial_filter_magnitude,
+            spatial_filter_smooth_alpha=config.spatial_filter_smooth_alpha,
+            spatial_filter_smooth_delta=config.spatial_filter_smooth_delta,
         )
         self._finger_angles: FingerAngles = FingerAngles(
             thumb=config.max_servo_angle,

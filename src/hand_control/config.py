@@ -53,9 +53,12 @@ class Config:
 
     # Depth preprocessing configuration
     depth_ema_alpha: float = 0.3
-    bilateral_d: int = 7
-    bilateral_sigma_color: float = 20.0
-    bilateral_sigma_space: float = 20.0
+
+    # RealSense spatial filter configuration
+    spatial_filter_enabled: bool = True
+    spatial_filter_magnitude: int = 2
+    spatial_filter_smooth_alpha: float = 0.5
+    spatial_filter_smooth_delta: float = 20.0
 
     @classmethod
     def from_env(cls) -> "Config":
@@ -92,13 +95,10 @@ class Config:
             max_num_hands=int(os.getenv("MAX_NUM_HANDS", str(cls.max_num_hands))),
             running_mode=os.getenv("RUNNING_MODE", cls.running_mode),
             depth_ema_alpha=float(os.getenv("DEPTH_EMA_ALPHA", str(cls.depth_ema_alpha))),
-            bilateral_d=int(os.getenv("BILATERAL_D", str(cls.bilateral_d))),
-            bilateral_sigma_color=float(
-                os.getenv("BILATERAL_SIGMA_COLOR", str(cls.bilateral_sigma_color))
-            ),
-            bilateral_sigma_space=float(
-                os.getenv("BILATERAL_SIGMA_SPACE", str(cls.bilateral_sigma_space))
-            ),
+            spatial_filter_enabled=os.getenv("SPATIAL_FILTER_ENABLED", "true").lower() == "true",
+            spatial_filter_magnitude=int(os.getenv("SPATIAL_FILTER_MAGNITUDE", str(cls.spatial_filter_magnitude))),
+            spatial_filter_smooth_alpha=float(os.getenv("SPATIAL_FILTER_SMOOTH_ALPHA", str(cls.spatial_filter_smooth_alpha))),
+            spatial_filter_smooth_delta=float(os.getenv("SPATIAL_FILTER_SMOOTH_DELTA", str(cls.spatial_filter_smooth_delta))),
         )
 
 

@@ -1,10 +1,9 @@
-"""Depth map spatial and temporal preprocessing."""
+"""Depth map preprocessing for hand tracking."""
 
 from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-import cv2
 import numpy as np
 
 from hand_control.filters.low_pass import LowPassFilter
@@ -60,86 +59,31 @@ class DepthEMA:
             f.reset()
 
 
-def bilateral_filter_depth_roi(
-    depth_roi: np.ndarray,
-    d: int = 7,
-    sigma_color: float = 20.0,
-    sigma_space: float = 20.0,
-) -> np.ndarray:
-    """Apply bilateral filtering to a depth ROI array.
-
-    Bilateral filtering smooths depth while preserving edges, preventing
-    background depth from bleeding into the hand region.
-
-    Args:
-        depth_roi: (H, W) float32 depth array in meters; may contain NaN.
-        d: Pixel neighborhood diameter; must be odd and >= 5.
-        sigma_color: Depth差异 threshold — larger values mean more blur.
-        sigma_space: Spatial distance threshold.
-
-    Returns:
-        (H, W) float32 filtered depth array with NaN preserved where input was NaN.
-    """
-    mask_valid = ~np.isnan(depth_roi)
-    if not np.any(mask_valid):
-        return depth_roi
-
-    depth_filled = depth_roi.copy()
-    valid_vals = depth_roi[mask_valid]
-    if valid_vals.size > 0:
-        fill_value = float(np.nanmean(valid_vals))
-        depth_filled[~mask_valid] = fill_value
-    else:
-        return depth_roi
-
-    h, w = depth_roi.shape
-    if h < 5 or w < 5:
-        return depth_roi
-
-    d_actual = d if (d % 2 == 1) else d + 1
-
-    filtered = cv2.bilateralFilter(
-        depth_filled.astype(np.float32),
-        d_actual,
-        sigma_color,
-        sigma_space,
-    )
-
-    result = filtered.copy()
-    result[~mask_valid] = np.nan
-    return result
-
-
-def _get_filtered_depth_at(
-    depth_roi: np.ndarray,
+def _get_depth_at(
     landmarks: Sequence[LandmarkPoint],
+    depth_frame: rs.depth_frame,
+    realsense: RealSenseCamera,
     frame_width: int,
     frame_height: int,
-    px_min: int,
-    py_min: int,
 ) -> list[float]:
-    """Look up filtered depth for each landmark from the pre-filtered ROI array.
+    """Look up depth at each landmark from the pre-filtered spatial depth frame.
 
     Args:
-        depth_roi: Filtered (H, W) float32 depth array.
         landmarks: 21 hand landmarks (normalized 0-1, flipped space).
+        depth_frame: Aligned RealSense depth frame (spatial filter already applied).
+        realsense: RealSenseCamera instance.
         frame_width: Original frame width.
         frame_height: Original frame height.
-        px_min: ROI left boundary in original frame pixel coords.
-        py_min: ROI top boundary in original frame pixel coords.
 
     Returns:
-        List of 21 depth values in meters (0 where invalid/NaN).
+        List of 21 depth values in meters (0 where invalid).
     """
     depths: list[float] = []
     for lm in landmarks:
-        col = int((1.0 - lm.x) * frame_width) - px_min
-        row = int(lm.y * frame_height) - py_min
-        if 0 <= row < depth_roi.shape[0] and 0 <= col < depth_roi.shape[1]:
-            val = float(depth_roi[row, col])
-            depths.append(val if not np.isnan(val) else 0.0)
-        else:
-            depths.append(0.0)
+        depth_px_x = int((1.0 - lm.x) * frame_width)
+        depth_px_y = int(lm.y * frame_height)
+        d = realsense.get_depth_at(depth_frame, depth_px_x, depth_px_y)
+        depths.append(d)
     return depths
 
 
@@ -149,8 +93,8 @@ def _extract_hand_roi_depth(
     realsense: RealSenseCamera,
     frame_width: int,
     frame_height: int,
-) -> tuple[np.ndarray, int, int, int, int]:
-    """Extract and return the hand ROI depth array and its bounds.
+) -> tuple[list[float], int, int, int, int]:
+    """Extract depth values and bounds for the hand ROI.
 
     Args:
         landmarks: 21 hand landmarks (normalized 0-1, flipped space).
@@ -160,8 +104,8 @@ def _extract_hand_roi_depth(
         frame_height: Frame height in pixels.
 
     Returns:
-        Tuple of (depth_roi, px_min, py_min, roi_w, roi_h). The depth_roi
-        is a (roi_h, roi_w) float32 array in meters (0 where invalid).
+        Tuple of (depths_list, px_min, py_min, roi_w, roi_h). The depths_list
+        contains depth in meters for each landmark (0 where invalid).
     """
     pts_norm = np.array([(lm.x, lm.y) for lm in landmarks], dtype=np.float64)
 
@@ -179,13 +123,6 @@ def _extract_hand_roi_depth(
     roi_w = max(1, px_max - px_min)
     roi_h = max(1, py_max - py_min)
 
-    depth_roi = np.zeros((roi_h, roi_w), dtype=np.float32)
+    depths = _get_depth_at(landmarks, depth_frame, realsense, frame_width, frame_height)
 
-    for row in range(py_min, py_max):
-        for col in range(px_min, px_max):
-            depth_px_x = int((1.0 - col / frame_width) * frame_width)
-            depth_px_y = row
-            d = realsense.get_depth_at(depth_frame, depth_px_x, depth_px_y)
-            depth_roi[row - py_min, col - px_min] = d if d > 0 else np.nan
-
-    return depth_roi, px_min, py_min, roi_w, roi_h
+    return depths, px_min, py_min, roi_w, roi_h
