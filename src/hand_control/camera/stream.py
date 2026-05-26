@@ -324,6 +324,7 @@ class CameraStream:
             num_hands=config.max_num_hands,
             min_hand_detection_confidence=config.hand_detection_confidence,
             min_tracking_confidence=config.hand_tracking_confidence,
+            min_hand_presence_confidence = 0.5,
             running_mode=running_mode,
         )
         detector = vision.HandLandmarker.create_from_options(options)
@@ -485,6 +486,7 @@ class CameraStream:
             num_hands=config.max_num_hands,
             min_hand_detection_confidence=config.hand_detection_confidence,
             min_tracking_confidence=config.hand_tracking_confidence,
+            min_hand_presence_confidence = 0.5,
             running_mode=running_mode,
         )
         detector = vision.HandLandmarker.create_from_options(options)

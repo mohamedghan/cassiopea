@@ -34,8 +34,8 @@ class Config:
     pinky_max_angle: int = 120
 
     # Distance strategy calibration
-    distance_ratio_min: float = 0.5  # Normalized ratio when fist is closed
-    distance_ratio_max: float = 2.0  # Normalized ratio when hand is open
+    distance_ratio_min: float = 0.75  # Normalized ratio when fist is closed
+    distance_ratio_max: float = 1.7  # Normalized ratio when hand is open
 
     # Model configuration
     model_path: Path = Path("hand_landmarker.task")
