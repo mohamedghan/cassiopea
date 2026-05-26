@@ -46,9 +46,16 @@ class Config:
     flask_debug: bool = False
 
     # Hand detection configuration
-    hand_detection_confidence: float = 0.8
+    hand_detection_confidence: float = 0.5
     hand_tracking_confidence: float = 0.5
     max_num_hands: int = 2
+    running_mode: str = "VIDEO"
+
+    # Depth preprocessing configuration
+    depth_ema_alpha: float = 0.3
+    bilateral_d: int = 7
+    bilateral_sigma_color: float = 20.0
+    bilateral_sigma_space: float = 20.0
 
     @classmethod
     def from_env(cls) -> "Config":
@@ -70,12 +77,8 @@ class Config:
             ring_max_angle=int(os.getenv("RING_MAX_ANGLE", str(cls.ring_max_angle))),
             pinky_min_angle=int(os.getenv("PINKY_MIN_ANGLE", str(cls.pinky_min_angle))),
             pinky_max_angle=int(os.getenv("PINKY_MAX_ANGLE", str(cls.pinky_max_angle))),
-            distance_ratio_min=float(
-                os.getenv("DISTANCE_RATIO_MIN", str(cls.distance_ratio_min))
-            ),
-            distance_ratio_max=float(
-                os.getenv("DISTANCE_RATIO_MAX", str(cls.distance_ratio_max))
-            ),
+            distance_ratio_min=float(os.getenv("DISTANCE_RATIO_MIN", str(cls.distance_ratio_min))),
+            distance_ratio_max=float(os.getenv("DISTANCE_RATIO_MAX", str(cls.distance_ratio_max))),
             model_path=Path(os.getenv("MODEL_PATH", str(cls.model_path))),
             flask_host=os.getenv("FLASK_HOST", cls.flask_host),
             flask_port=int(os.getenv("FLASK_PORT", str(cls.flask_port))),
@@ -87,6 +90,15 @@ class Config:
                 os.getenv("HAND_TRACKING_CONFIDENCE", str(cls.hand_tracking_confidence))
             ),
             max_num_hands=int(os.getenv("MAX_NUM_HANDS", str(cls.max_num_hands))),
+            running_mode=os.getenv("RUNNING_MODE", cls.running_mode),
+            depth_ema_alpha=float(os.getenv("DEPTH_EMA_ALPHA", str(cls.depth_ema_alpha))),
+            bilateral_d=int(os.getenv("BILATERAL_D", str(cls.bilateral_d))),
+            bilateral_sigma_color=float(
+                os.getenv("BILATERAL_SIGMA_COLOR", str(cls.bilateral_sigma_color))
+            ),
+            bilateral_sigma_space=float(
+                os.getenv("BILATERAL_SIGMA_SPACE", str(cls.bilateral_sigma_space))
+            ),
         )
 
 

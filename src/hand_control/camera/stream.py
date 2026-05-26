@@ -1,6 +1,7 @@
 """Camera capture and video streaming module."""
 
 import logging
+import time
 from collections.abc import Generator, Sequence
 
 import cv2
@@ -13,6 +14,11 @@ from scipy.interpolate import griddata
 from hand_control.arduino import ArduinoController
 from hand_control.camera.realsense import RealSenseCamera
 from hand_control.config import config
+from hand_control.filters import DepthEMA, bilateral_filter_depth_roi
+from hand_control.filters.depth_preprocessing import (
+    _extract_hand_roi_depth,
+    _get_filtered_depth_at,
+)
 from hand_control.tracking import (
     HandTracker,
     draw_landmarks_on_image,
@@ -42,7 +48,13 @@ def _inject_real_depth(
     frame_width: int,
     frame_height: int,
 ) -> list[MutableLandmark]:
-    """Replace MediaPipe estimated z with real depth from the RealSense sensor.
+    """Replace MediaPipe estimated z with real depth from RealSense, spatially filtered.
+
+    Steps:
+      1. Extract the hand ROI from the depth frame.
+      2. Apply bilateral filtering to smooth depth while preserving edges.
+      3. Look up filtered depth for each of the 21 landmarks.
+      4. Fall back to MediaPipe z where sensor returns 0 (invalid/occluded).
 
     MediaPipe processes the horizontally flipped color frame, so its landmark
     x coordinates are in flipped space.  The RealSense depth frame is aligned
@@ -61,16 +73,22 @@ def _inject_real_depth(
         Landmarks where the sensor returns 0 (invalid/out-of-range) keep
         MediaPipe's estimated z value.
     """
+    depth_roi, px_min, py_min, _, _ = _extract_hand_roi_depth(
+        landmarks, depth_frame, realsense, frame_width, frame_height
+    )
+    filtered_depth = bilateral_filter_depth_roi(
+        depth_roi,
+        d=config.bilateral_d,
+        sigma_color=config.bilateral_sigma_color,
+        sigma_space=config.bilateral_sigma_space,
+    )
+    filtered_depths = _get_filtered_depth_at(
+        filtered_depth, landmarks, frame_width, frame_height, px_min, py_min
+    )
+
     enriched: list[MutableLandmark] = []
-    for lm in landmarks:
-        # Un-flip x to map back into the original (unflipped) depth frame space
-        depth_px_x = int((1.0 - lm.x) * frame_width)
-        depth_px_y = int(lm.y * frame_height)
-
-        real_depth = realsense.get_depth_at(depth_frame, depth_px_x, depth_px_y)
-
-        # Use real depth when valid; fall back to MediaPipe estimate otherwise
-        z = real_depth if real_depth > 0.0 else lm.z
+    for lm, z in zip(landmarks, filtered_depths, strict=True):
+        z = z if z > 0.0 else lm.z
         enriched.append(MutableLandmark(x=lm.x, y=lm.y, z=z))
     return enriched
 
@@ -158,30 +176,15 @@ def _build_realsense_depth_map(
     if landmarks is None or len(landmarks) < 3:
         return None
 
-    pts_norm = np.array([(lm.x, lm.y) for lm in landmarks], dtype=np.float64)
-
-    margin = 0.08
-    x_min = max(0.0, pts_norm[:, 0].min() - margin)
-    x_max = min(1.0, pts_norm[:, 0].max() + margin)
-    y_min = max(0.0, pts_norm[:, 1].min() - margin)
-    y_max = min(1.0, pts_norm[:, 1].max() + margin)
-
-    px_min = int(x_min * frame_w)
-    px_max = int(x_max * frame_w)
-    py_min = int(y_min * frame_h)
-    py_max = int(y_max * frame_h)
-
-    roi_w = max(1, px_max - px_min)
-    roi_h = max(1, py_max - py_min)
-
-    depth_roi = np.zeros((roi_h, roi_w), dtype=np.float32)
-
-    for row in range(py_min, py_max):
-        for col in range(px_min, px_max):
-            depth_px_x = int((1.0 - col / frame_w) * frame_w)
-            depth_px_y = row
-            d = realsense.get_depth_at(depth_frame, depth_px_x, depth_px_y)
-            depth_roi[row - py_min, col - px_min] = d if d > 0 else np.nan
+    depth_roi, _, _, _, _ = _extract_hand_roi_depth(
+        landmarks, depth_frame, realsense, frame_w, frame_h
+    )
+    depth_roi = bilateral_filter_depth_roi(
+        depth_roi,
+        d=config.bilateral_d,
+        sigma_color=config.bilateral_sigma_color,
+        sigma_space=config.bilateral_sigma_space,
+    )
 
     valid_mask = ~np.isnan(depth_roi)
     if not np.any(valid_mask):
@@ -229,11 +232,16 @@ class CameraStream:
             pinky=config.max_servo_angle,
         )
         self._finger_ratios: FingerRatios = {
-            "thumb": 0.0, "index": 0.0, "middle": 0.0, "ring": 0.0, "pinky": 0.0
+            "thumb": 0.0,
+            "index": 0.0,
+            "middle": 0.0,
+            "ring": 0.0,
+            "pinky": 0.0,
         }
         self._strategy: str = "distance"  # "distance" or "joint_angle"
         self._distance_ratio_min: float = config.distance_ratio_min
         self._distance_ratio_max: float = config.distance_ratio_max
+        self._depth_ema = DepthEMA(alpha=config.depth_ema_alpha)
 
     @property
     def finger_angles(self) -> FingerAngles:
@@ -308,11 +316,15 @@ class CameraStream:
 
         # Initialize MediaPipe hand landmarker
         base_options = python.BaseOptions(model_asset_path=str(config.model_path))
+        running_mode = (
+            vision.RunningMode.VIDEO if config.running_mode == "VIDEO" else vision.RunningMode.IMAGE
+        )
         options = vision.HandLandmarkerOptions(
             base_options=base_options,
             num_hands=config.max_num_hands,
             min_hand_detection_confidence=config.hand_detection_confidence,
             min_tracking_confidence=config.hand_tracking_confidence,
+            running_mode=running_mode,
         )
         detector = vision.HandLandmarker.create_from_options(options)
         hand_tracker = HandTracker()
@@ -331,8 +343,9 @@ class CameraStream:
                 rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
                 mp_image = mp.Image(image_format=mp.ImageFormat.SRGB, data=rgb_frame)
 
-                # Detect hands
-                detection_result = detector.detect(mp_image)
+                # Detect hands (VIDEO mode for temporal smoothing)
+                timestamp_ms = int(time.time() * 1000)
+                detection_result = detector.detect_for_video(mp_image, timestamp_ms)
 
                 # Default angles (all open)
                 current_angles = FingerAngles(
@@ -347,14 +360,13 @@ class CameraStream:
                 )
 
                 # Find and track hand
-                tracked_hand = hand_tracker.find_tracked_hand(
-                    detection_result.hand_landmarks
-                )
+                tracked_hand = hand_tracker.find_tracked_hand(detection_result.hand_landmarks)
 
                 hand_distance_m: float = 0.0
 
                 if tracked_hand is not None:
                     # Replace estimated z with real metric depth from RealSense
+                    # (bilateral-filtered and looked up per-landmark)
                     enriched_landmarks = _inject_real_depth(
                         tracked_hand,
                         self._realsense,
@@ -362,6 +374,9 @@ class CameraStream:
                         frame_w,
                         frame_h,
                     )
+
+                    # Apply temporal EMA smoothing to z-coordinates
+                    enriched_landmarks = self._depth_ema.update(enriched_landmarks)
 
                     # Wrist landmark (index 0) gives hand distance from camera
                     hand_distance_m = enriched_landmarks[0].z
@@ -410,9 +425,7 @@ class CameraStream:
 
                 # Overlay: number of hands detected
                 num_hands = (
-                    len(detection_result.hand_landmarks)
-                    if detection_result.hand_landmarks
-                    else 0
+                    len(detection_result.hand_landmarks) if detection_result.hand_landmarks else 0
                 )
                 cv2.putText(
                     rgb_frame,
@@ -444,10 +457,7 @@ class CameraStream:
                     continue
 
                 frame_bytes = buffer.tobytes()
-                yield (
-                    b"--frame\r\n"
-                    b"Content-Type: image/jpeg\r\n\r\n" + frame_bytes + b"\r\n"
-                )
+                yield (b"--frame\r\nContent-Type: image/jpeg\r\n\r\n" + frame_bytes + b"\r\n")
 
         finally:
             detector.close()
@@ -467,11 +477,15 @@ class CameraStream:
             return
 
         base_options = python.BaseOptions(model_asset_path=str(config.model_path))
+        running_mode = (
+            vision.RunningMode.VIDEO if config.running_mode == "VIDEO" else vision.RunningMode.IMAGE
+        )
         options = vision.HandLandmarkerOptions(
             base_options=base_options,
             num_hands=config.max_num_hands,
             min_hand_detection_confidence=config.hand_detection_confidence,
             min_tracking_confidence=config.hand_tracking_confidence,
+            running_mode=running_mode,
         )
         detector = vision.HandLandmarker.create_from_options(options)
         hand_tracker = HandTracker()
@@ -489,10 +503,9 @@ class CameraStream:
                 rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
                 mp_image = mp.Image(image_format=mp.ImageFormat.SRGB, data=rgb_frame)
 
-                detection_result = detector.detect(mp_image)
-                tracked_hand = hand_tracker.find_tracked_hand(
-                    detection_result.hand_landmarks
-                )
+                timestamp_ms = int(time.time() * 1000)
+                detection_result = detector.detect_for_video(mp_image, timestamp_ms)
+                tracked_hand = hand_tracker.find_tracked_hand(detection_result.hand_landmarks)
 
                 current_angles = FingerAngles(
                     thumb=config.max_servo_angle,
@@ -584,19 +597,14 @@ class CameraStream:
                         2,
                     )
 
-                composite = np.hstack(
-                    [pane_left_resized, pane_center_resized, pane_right_resized]
-                )
+                composite = np.hstack([pane_left_resized, pane_center_resized, pane_right_resized])
 
                 ret, buffer = cv2.imencode(".jpg", composite)
                 if not ret:
                     continue
 
                 frame_bytes = buffer.tobytes()
-                yield (
-                    b"--frame\r\n"
-                    b"Content-Type: image/jpeg\r\n\r\n" + frame_bytes + b"\r\n"
-                )
+                yield (b"--frame\r\nContent-Type: image/jpeg\r\n\r\n" + frame_bytes + b"\r\n")
 
         finally:
             detector.close()
