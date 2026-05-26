@@ -52,7 +52,7 @@ class RealSenseCamera:
             True if camera opened successfully, False otherwise.
         """
         try:
-            self._pipeline = rs.pipeline()
+            pipeline = rs.pipeline()
             cfg = rs.config()
             cfg.enable_stream(
                 rs.stream.color, self._width, self._height, rs.format.bgr8, self._fps
@@ -60,8 +60,8 @@ class RealSenseCamera:
             cfg.enable_stream(
                 rs.stream.depth, self._width, self._height, rs.format.z16, self._fps
             )
-            self._pipeline.start(cfg)
-            # Align depth frame to color frame so pixel coords match 1-to-1
+            pipeline.start(cfg)
+            self._pipeline = pipeline
             self._align = rs.align(rs.stream.color)
             return True
         except Exception:

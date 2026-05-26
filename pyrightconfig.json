@@ -1,0 +1,15 @@
+{
+  "venvPath": ".",
+  "venv": "env",
+  "pythonVersion": "3.14",
+  "pythonPlatform": "Linux",
+  "typeCheckingMode": "basic",
+  "extraPaths": ["src", "/home/meddabeast/projects/CASSI/env/lib/python3.14/site-packages"],
+  "reportAttributeAccessIssue": false,
+  "overrides": [
+    {
+      "module": ["cv2", "mediapipe", "pyrealsense2", "serial"],
+      "ignoreMissingImports": true
+    }
+  ]
+}

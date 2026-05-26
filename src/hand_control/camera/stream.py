@@ -185,8 +185,8 @@ class CameraStream:
                     continue
 
                 # Flip horizontally for mirror effect (depth frame stays unflipped)
-                frame: ImageArray = cv2.flip(color_bgr, 1)
-                rgb_frame: ImageArray = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+                frame = cv2.flip(color_bgr, 1)
+                rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
                 mp_image = mp.Image(image_format=mp.ImageFormat.SRGB, data=rgb_frame)
 
                 # Detect hands
@@ -199,6 +199,9 @@ class CameraStream:
                     middle=config.max_servo_angle,
                     ring=config.max_servo_angle,
                     pinky=config.max_servo_angle,
+                )
+                current_ratios: FingerRatios = FingerRatios(
+                    thumb=0.0, index=0.0, middle=0.0, ring=0.0, pinky=0.0
                 )
 
                 # Find and track hand
@@ -237,7 +240,9 @@ class CameraStream:
                         current_ratios = get_all_finger_ratios(enriched_landmarks)
                     else:
                         current_angles = get_all_finger_angles(enriched_landmarks)
-                        current_ratios = {"thumb": 0.0, "index": 0.0, "middle": 0.0, "ring": 0.0, "pinky": 0.0}
+                        current_ratios = FingerRatios(
+                            thumb=0.0, index=0.0, middle=0.0, ring=0.0, pinky=0.0
+                        )
                     self._finger_angles = current_angles
                     self._finger_ratios = current_ratios
 
@@ -290,7 +295,7 @@ class CameraStream:
                     )
 
                 # Convert back to BGR for JPEG encoding
-                bgr_out: ImageArray = cv2.cvtColor(rgb_frame, cv2.COLOR_RGB2BGR)
+                bgr_out = cv2.cvtColor(rgb_frame, cv2.COLOR_RGB2BGR)
 
                 ret, buffer = cv2.imencode(".jpg", bgr_out)
                 if not ret:

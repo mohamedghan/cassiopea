@@ -68,6 +68,6 @@ class MutableLandmark:
 
 
 # NumPy array type aliases
-Vector3D = npt.NDArray[np.floating[np.float64]]
-Vector2D = npt.NDArray[np.floating[np.float64]]
+Vector3D = npt.NDArray[np.float64]
+Vector2D = npt.NDArray[np.float64]
 ImageArray = npt.NDArray[np.uint8]

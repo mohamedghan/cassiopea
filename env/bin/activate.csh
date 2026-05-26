@@ -13,13 +13,13 @@ setenv VIRTUAL_ENV /home/meddabeast/projects/CASSI/env
 
 set _OLD_VIRTUAL_PATH="$PATH"
 setenv PATH "$VIRTUAL_ENV/"bin":$PATH"
-setenv VIRTUAL_ENV_PROMPT env
 
 
 set _OLD_VIRTUAL_PROMPT="$prompt"
 
 if (! "$?VIRTUAL_ENV_DISABLE_PROMPT") then
-    set prompt = "("env") $prompt:q"
+    set prompt = '(env) '"$prompt"
+    setenv VIRTUAL_ENV_PROMPT '(env) '
 endif
 
 alias pydoc python -m pydoc

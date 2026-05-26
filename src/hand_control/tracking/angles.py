@@ -5,10 +5,7 @@ from collections.abc import Sequence
 import numpy as np
 
 from hand_control.config import config
-from hand_control.types import FingerAngles, LandmarkPoint
-
-# Type alias for finger ratios
-FingerRatios = dict[str, float]
+from hand_control.types import FingerAngles, FingerRatios, LandmarkPoint
 
 # Finger landmark indices (MCP, PIP, DIP, TIP)
 FINGER_INDICES: dict[str, tuple[int, int, int, int]] = {
@@ -280,10 +277,11 @@ def get_all_finger_ratios(landmarks: Sequence[LandmarkPoint]) -> FingerRatios:
     middle_mcp = landmarks[9]
 
     palm_scale = calculate_distance(wrist, middle_mcp)
-    if palm_scale < 1e-6:
-        return {"thumb": 0.0, "index": 0.0, "middle": 0.0, "ring": 0.0, "pinky": 0.0}
 
-    ratios: dict[str, float] = {}
+    if palm_scale < 1e-6:
+        return FingerRatios(thumb=0.0, index=0.0, middle=0.0, ring=0.0, pinky=0.0)
+
+    ratios = FingerRatios(thumb=0.0, index=0.0, middle=0.0, ring=0.0, pinky=0.0)
     for finger_name, tip_idx in FINGERTIP_INDICES.items():
         fingertip = landmarks[tip_idx]
         distance = calculate_distance(wrist, fingertip)
