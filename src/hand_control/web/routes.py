@@ -38,6 +38,22 @@ def create_blueprint() -> Blueprint:
             mimetype="multipart/x-mixed-replace; boundary=frame",
         )
 
+    @bp.route("/presentation")
+    def presentation() -> str:
+        """Render the event presentation view with 3-pane composite."""
+        return render_template("presentation.html")
+
+    @bp.route("/presentation_feed")
+    def presentation_feed() -> Response:
+        """Stream the 3-pane composite video feed for event presentation."""
+        camera_stream = current_app.config.get("camera_stream")
+        if camera_stream is None:
+            return Response("Camera not available", status=503)
+        return Response(
+            camera_stream.generate_composite_frames(),
+            mimetype="multipart/x-mixed-replace; boundary=frame",
+        )
+
     @bp.route("/finger/<int:finger>/<int:angle>")
     def set_finger(finger: int, angle: int) -> Response:
         """Set angle for a single finger.
@@ -72,7 +88,7 @@ def create_blueprint() -> Blueprint:
         try:
             angle_list = [
                 max(lo, min(hi, int(a)))
-                for (lo, hi), a in zip(_finger_ranges, angles.split(","))
+                for (lo, hi), a in zip(_finger_ranges, angles.split(","), strict=True)
             ]
             if len(angle_list) == 5:
                 arduino = current_app.config.get("arduino")
