@@ -20,14 +20,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libgl1 \
     libglib2.0-0 \
     libsm6 \
-    libgles2 \
-    libegl1 \
     libxext6 \
     libxrender1 \
     libgomp1 \
     libv4l-0 \
     libusb-1.0-0 \
-    curl \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
@@ -35,17 +32,15 @@ WORKDIR /app
 # Copy installed packages from builder
 COPY --from=builder /install /usr/local
 
-# Copy application code and model
+# Copy application code
 COPY src/ ./src/
-COPY hand_landmarker.task ./
 
 # Set environment variables
-ENV PYTHONPATH=/app/src
+ENV PYTHONPATH=/app
 ENV PYTHONUNBUFFERED=1
 ENV FLASK_HOST=0.0.0.0
 ENV FLASK_PORT=5000
 ENV MEDIAPIPE_DISABLE_GPU=1
-
 
 # Expose Flask port
 EXPOSE 5000
